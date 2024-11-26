@@ -1,14 +1,13 @@
+<img src="imgs/circuit.svg#gh-light-mode-only" width="100%">
+<img src="imgs/circuit_white.svg#gh-dark-mode-only" width="100%">
+
 # Nonlinear Quantum Computation using Amplified Encodings
 
 *Matthias Deiml, Daniel Peterseim*
 
 Supplementary material to the paper \
-(add link)
+https://arxiv.org/abs/2411.16435
 
-<img src="imgs/circuit.svg#gh-light-mode-only" width="100%">
-<img src="imgs/circuit_white.svg#gh-dark-mode-only" width="100%">
+> This paper presents a novel framework for high-dimensional nonlinear quantum computation that exploits tensor products of amplified vector and matrix encodings to efficiently evaluate multivariate polynomials. The approach enables the solution of nonlinear equations by quantum implementations of the fixed-point iteration and Newton's method, with quantitative runtime bounds derived in terms of the error tolerance. These results show that a quantum advantage, characterized by a logarithmic scaling of complexity with the dimension of the problem, is preserved. While Newton's method achieves near-optimal theoretical complexity, the fixed-point iteration already shows practical feasibility, as demonstrated by numerical experiments solving simple nonlinear problems on existing quantum devices. By bridging theoretical advances with practical implementation, the framework of amplified encodings offers a new path to nonlinear quantum algorithms. 
 
-> This paper introduces a novel framework for high-dimensional nonlinear quantum computation, using amplified encodings for vectors and matrices to efficiently evaluate multivariate polynomials.
-We show that this framework can, for example, be used to solve nonlinear equations. We provide quantitative runtime bounds for quantum realizations of the fixed point iteration and Newton's method that are almost linear in the error tolerance and logarithmic in the problem dimension. Experimental tests demonstrate that simple problems can already be solved on present-day hardware.
-
-Code and the corresponding output for the fixed-point iteration is contained in the jupyter notebook [`experiment.ipynb`](experiment.ipynb). Code for the Newton iteration is contained in [`newton.py`](newton.py).
+Code and the corresponding output for the fixed-point iteration is contained in the jupyter notebook [`experiment.ipynb`](experiment.ipynb). Code for the Newton's method is contained in [`newton.py`](newton.py).
