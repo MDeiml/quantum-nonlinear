@@ -1,9 +1,22 @@
+# Copyright (C) 2024 Matthias Deiml, Daniel Peterseim - All rights reserved
+
 import qiskit as qk
 import numpy as np
 import qiskit_aer
 from qiskit.circuit.library import ZGate
 from qiskit.primitives import BaseEstimatorV2 as Estimator, StatevectorEstimator
 
+
+# The code for the Newton's method is very similar to the fixed-point iteration.
+# The three main differences are:
+#
+# * The implementation of the Jacobian Dg in addition to g (see
+#   `block_encoding_Dg`).
+#
+# * The implementation of a linear solver (see `invert`).
+#
+# * Ancilla bits have to be handled more carefully due to the use of QSVT in the
+#   linear solver
 
 backend = qiskit_aer.Aer.get_backend("aer_simulator")
 estimator = StatevectorEstimator()
@@ -146,7 +159,8 @@ def amplify(inp: BlockEncoding, k: int) -> BlockEncoding:
     return BlockEncoding(U, cU, inp.norm * np.sin(np.pi/(2 * k)), inp.size)
 
 
-# Actually this is -Dg and not Dg
+# This implements a block encoding of Dg the negative(!) Jacobian -Dg(x) given a
+# block encoding of x.
 def block_encoding_Dg(x: BlockEncoding) -> BlockEncoding:
     norm = (2/4) * x.norm
 
@@ -156,6 +170,8 @@ def block_encoding_Dg(x: BlockEncoding) -> BlockEncoding:
     a1 = qk.QuantumRegister(x.size - 1, name="a1")
     a2 = qk.QuantumRegister(x.U.num_qubits - x.size, name="a2")
 
+    # The quadratic part is implemented as in `block_encoding_g`, the contant
+    # part is dropped.
     U = qk.QuantumCircuit(x1, x2, a1, a2, name="U_Dg")
     U.append(x.U, [x2[0]] + a1[:] + a2[:])
     U.h(x1)
@@ -173,11 +189,14 @@ def block_encoding_Dg(x: BlockEncoding) -> BlockEncoding:
     return BlockEncoding(U, cU, norm, x.size + 1)
 
 
+# This implements the linear solver based on QSVT.
+# [1] https://arxiv.org/abs/1806.01838
+# [2] https://arxiv.org/abs/2105.02859
 def inverse(Dg: BlockEncoding) -> BlockEncoding:
-    # Angles computed using pyqsp
+    # Angles computed using pyqsp [2]
     angles = np.array([-0.003860431530918084, 0.011746088645406612, -0.04164716560407932, 0.11008518322901666, -0.43656650933198426, -0.007689861025225564, -0.5370132056833176, 0.8931764280015879, -1.320709604226413, 1.8208830504090836, -2.2484162224410738, -0.5370131995188709, -0.0076898550452888514, 2.705026142033692, 0.11008518151197777, -0.041647166831564, -3.1298465650961154, 1.5669358952445285])
 
-    # Turn Wx convention angles to R convention angles
+    # Turn Wx convention angles to R convention angles [1, Corollary 8]
     d = len(angles)-1
     angles_R = np.zeros(d)
     angles_R[0] = angles[0] + angles[-1] + (d-1) * np.pi/2
@@ -193,6 +212,7 @@ def inverse(Dg: BlockEncoding) -> BlockEncoding:
     a1 = qk.QuantumRegister(Dg.size-1, name="a1")
     a2 = qk.QuantumRegister(Dg.U.num_qubits - Dg.size, name="a2")
 
+    # The block encoding is just the usual QSVT [1, Figure 1]
     U = qk.QuantumCircuit(x1, b, a1, a2, name="U_Dg_inv")
     U.h(b)
 
@@ -247,6 +267,8 @@ def estimate_ie(be: BlockEncoding, estimator: Estimator) -> float:
     return np.sqrt(estimator.run([(circ, obs)]).result()[0].data.evs)
 
 
+# Impelements the multiplication and addition Ay + b where for the Newton's
+# method we set A = Dg(x)^{-1}, y = g(x), b = x.
 def axpy(Dg_inv: BlockEncoding, gx: BlockEncoding, x: BlockEncoding) -> BlockEncoding:
     norm = x.norm + Dg_inv.norm * gx.norm
     angle = 2 * np.arctan(np.sqrt(x.norm / (Dg_inv.norm * gx.norm)))
@@ -296,11 +318,14 @@ def axpy(Dg_inv: BlockEncoding, gx: BlockEncoding, x: BlockEncoding) -> BlockEnc
     return BlockEncoding(U, cU, norm, len(a1) + 3)
 
 
+# Finally we can define the amplified encoding of a single newton step.
 def newton_step(x: BlockEncoding, estimator: Estimator):
     gx = block_encoding_g(x)
     Dg_inv = inverse(block_encoding_Dg(x))
     next = axpy(Dg_inv, gx, x)
 
+    # To get perfect information efficiency, we intentionally decrease the
+    # information efficiency of g(x).
     ie = estimate_ie(next, estimator)
     k = 2 * int(np.ceil(0.25 * (np.pi / np.arcsin(ie) - 2))) + 1
     add_subnorm = np.sin(np.pi/(2 * k)) / ie
@@ -311,14 +336,14 @@ def newton_step(x: BlockEncoding, estimator: Estimator):
     return amplify(next_sub, k)
 
 
-# Classical reference
+# Classical reference implementation of g and its Jacobian
 
-def f(x):
+def g(x):
     Hx = np.array([[1, 1], [1, -1]]) @ x
     return np.array([1, 1]) - 1/8 * Hx * Hx
 
 
-def Df(x):
+def Dg(x):
     return -0.25 * np.array([[x[0]+x[1], x[0]+x[1]], [x[0]-x[1], x[1]-x[0]]])
 
 
@@ -329,6 +354,8 @@ cU_x = qk.QuantumCircuit(2, name="cU_x0")
 cU_x.cry(2 * np.arctan(x_ref[1]/x_ref[0]), 0, 1)
 x0 = BlockEncoding(U_x, cU_x, np.linalg.norm(x_ref))
 
+from qiskit_ibm_runtime.fake_provider import FakeSherbrooke
+
 N = 2
 x = x0
 for i in range(N):
@@ -337,8 +364,9 @@ for i in range(N):
     obs0 = qk.quantum_info.SparsePauliOp(["I" * x.U.num_qubits, "I" * (x.U.num_qubits - 1) + "Z"], coeffs=[0.5, 0.5])
     circ = x.U
     result = estimator.run([(circ, obs0)]).result()
+
     p = np.array([result[0].data.evs, 1-result[0].data.evs])
     print(f"x{i+1} (simulated): {np.sqrt(p) * x.norm}")
 
-    x_ref = x_ref - np.linalg.solve(Df(x_ref), f(x_ref))
+    x_ref = x_ref - np.linalg.solve(Dg(x_ref), g(x_ref))
     print(f"x{i+1} (reference): {x_ref}")
